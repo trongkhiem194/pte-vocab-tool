@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PTE Vocabulary → Excel Tool</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0a1a;
+  --surface: #12122a;
+  --surface2: #1a1a3e;
+  --border: #2a2a5a;
+  --text: #e0e0f0;
+  --text2: #8888aa;
+  --accent: #6c5ce7;
+  --accent2: #a29bfe;
+  --success: #00cec9;
+  --danger: #ff6b6b;
+  --warning: #feca57;
+  --glass: rgba(255,255,255,0.04);
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+/* Header */
+.header {
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(20px);
+}
+.header h1 {
+  font-size: 20px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent2), var(--success));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  flex: 1;
+}
+.api-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.api-section input {
+  background: var(--glass);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  width: 280px;
+  font-family: 'Inter', monospace;
+  transition: border-color 0.2s;
+}
+.api-section input:focus { outline: none; border-color: var(--accent); }
+.api-section input::placeholder { color: var(--text2); }
+
+/* Buttons */
+.btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn-primary { background: linear-gradient(135deg, var(--accent), #8b5cf6); color: #fff; }
+.btn-primary:hover { box-shadow: 0 4px 15px rgba(108,92,231,0.4); }
+.btn-success { background: linear-gradient(135deg, var(--success), #00b894); color: #fff; }
+.btn-success:hover { box-shadow: 0 4px 15px rgba(0,206,201,0.4); }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text2); }
+.btn-outline:hover { border-color: var(--accent); color: var(--text); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+
+/* Main layout */
+.container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+/* Drop zone */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 16px;
+  padding: 40px;
+  text-align: center;
+  transition: all 0.3s;
+  cursor: pointer;
+  background: var(--glass);
+  margin-bottom: 20px;
+}
+.drop-zone.drag-over {
+  border-color: var(--accent);
+  background: rgba(108,92,231,0.08);
+  transform: scale(1.01);
+}
+.drop-zone-icon { font-size: 48px; margin-bottom: 12px; }
+.drop-zone-text { color: var(--text2); font-size: 14px; }
+.drop-zone-text strong { color: var(--accent2); }
+
+/* Image grid */
+.images-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.image-card {
+  position: relative;
+  width: 140px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  transition: all 0.2s;
+}
+.image-card:hover { border-color: var(--accent); }
+.image-card.processing { border-color: var(--warning); }
+.image-card.done { border-color: var(--success); }
+.image-card.error { border-color: var(--danger); }
+.image-card img { width: 100%; height: 100px; object-fit: cover; display: block; }
+.image-card .card-footer {
+  padding: 6px 8px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.image-card .card-name { color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80px; }
+.image-card .card-status { font-size: 14px; }
+.image-card .btn-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.image-card:hover .btn-remove { opacity: 1; }
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.toolbar .info {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+/* Progress */
+.progress-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  display: none;
+}
+.progress-bar.active { display: block; }
+.progress-bar .fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--success));
+  border-radius: 4px;
+  transition: width 0.3s;
+  width: 0%;
+}
+
+/* Status log */
+.status-log {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--text2);
+  max-height: 120px;
+  overflow-y: auto;
+  display: none;
+}
+.status-log.active { display: block; }
+.status-log .log-line { margin: 2px 0; }
+.status-log .log-line.success { color: var(--success); }
+.status-log .log-line.error { color: var(--danger); }
+.status-log .log-line.info { color: var(--accent2); }
+
+/* Data table */
+.table-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.table-section .section-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--glass);
+}
+.table-section .section-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  flex: 1;
+}
+.table-wrap {
+  overflow-x: auto;
+  max-height: 600px;
+  overflow-y: auto;
+}
+table.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+table.data-table th {
+  background: #1a1a2e;
+  color: #fff;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  border-bottom: 2px solid var(--accent);
+  white-space: nowrap;
+}
+table.data-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+table.data-table tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+table.data-table tr:hover td { background: rgba(108,92,231,0.06); }
+table.data-table td[contenteditable] {
+  cursor: text;
+  outline: none;
+}
+table.data-table td[contenteditable]:focus {
+  background: rgba(108,92,231,0.12) !important;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+table.data-table .col-stt { text-align: center; color: var(--text2); width: 50px; }
+table.data-table .col-word { font-weight: 600; }
+table.data-table .col-abbr { text-align: center; color: var(--text2); }
+table.data-table .col-ipa { color: var(--text2); font-style: italic; }
+table.data-table .col-type { color: #ff6b6b; font-weight: 600; text-align: center; }
+table.data-table .col-meaning { }
+
+/* Settings panel */
+.settings-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+  display: none;
+}
+.settings-panel.active { display: block; }
+.settings-panel h3 { font-size: 14px; margin-bottom: 12px; color: var(--accent2); }
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.setting-row label { font-size: 13px; color: var(--text2); min-width: 160px; }
+.setting-row select, .setting-row input[type="number"] {
+  background: var(--glass);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+}
+.setting-row select:focus, .setting-row input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Export section */
+.export-section {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--glass);
+}
+
+/* Loading spinner */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #fff;
+  z-index: 1000;
+  animation: slideIn 0.3s ease;
+  max-width: 360px;
+}
+.toast.success { background: linear-gradient(135deg, #00b894, #00cec9); }
+.toast.error { background: linear-gradient(135deg, #e17055, #ff6b6b); }
+@keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* Help link */
+.help-link {
+  color: var(--accent2);
+  text-decoration: none;
+  font-size: 12px;
+}
+.help-link:hover { text-decoration: underline; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .header { flex-wrap: wrap; }
+  .api-section input { width: 200px; }
+  .container { padding: 12px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <h1>📚 PTE Vocabulary → Excel</h1>
+  <div class="api-section">
+    <span style="font-size:13px;color:var(--text2)">🔑</span>
+    <input type="password" id="apiKey" placeholder="Nhập Gemini API Key (chỉ cần 1 lần)" />
+    <button class="btn btn-sm btn-outline" onclick="toggleKeyVisibility()">👁</button>
+    <button class="btn btn-sm btn-primary" onclick="saveApiKey()">Lưu</button>
+    <a href="https://aistudio.google.com/app/apikey" target="_blank" class="help-link">Lấy key miễn phí →</a>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Drop zone -->
+  <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+    <div class="drop-zone-icon">📁</div>
+    <div class="drop-zone-text">
+      <strong>Kéo thả hình</strong> vào đây hoặc <strong>click để chọn</strong><br>
+      Hỗ trợ JPG, PNG — Nhiều file cùng lúc
+    </div>
+    <input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="handleFiles(this.files)">
+  </div>
+
+  <!-- Image grid -->
+  <div class="images-grid" id="imagesGrid"></div>
+
+  <!-- Toolbar -->
+  <div class="toolbar" id="toolbar" style="display:none">
+    <button class="btn btn-primary" id="btnExtract" onclick="extractAll()">
+      🔍 Extract tất cả
+    </button>
+    <button class="btn btn-outline" onclick="clearAll()">🗑 Xóa tất cả</button>
+    <button class="btn btn-outline" onclick="toggleSettings()">⚙️ Cài đặt</button>
+    <div class="info" id="infoText"></div>
+  </div>
+
+  <!-- Settings -->
+  <div class="settings-panel" id="settingsPanel">
+    <h3>⚙️ Cài đặt</h3>
+    <div class="setting-row">
+      <label>Số từ mỗi sheet:</label>
+      <input type="number" id="wordsPerSheet" value="40" min="10" max="100">
+    </div>
+    <div class="setting-row">
+      <label>Tên file output:</label>
+      <input type="text" id="outputName" value="PTE_Vocab" style="background:var(--glass);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:13px;width:200px;">
+    </div>
+    <div class="setting-row">
+      <label>Gemini model:</label>
+      <select id="geminiModel">
+        <option value="gemini-2.0-flash">gemini-2.0-flash (nhanh)</option>
+        <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite (rất nhanh)</option>
+        <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
+
+  <!-- Status log -->
+  <div class="status-log" id="statusLog"></div>
+
+  <!-- Data table -->
+  <div class="table-section" id="tableSection" style="display:none">
+    <div class="section-header">
+      <h2>📊 Dữ liệu đã extract</h2>
+      <span id="dataCount" style="font-size:12px;color:var(--text2)"></span>
+      <button class="btn btn-sm btn-outline" onclick="copyAsText()">📋 Copy</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table" id="dataTable">
+        <thead id="dataTableHead"></thead>
+        <tbody id="dataTableBody"></tbody>
+      </table>
+    </div>
+    <div class="export-section">
+      <button class="btn btn-success" onclick="downloadExcel('single')">📥 Download 1 Sheet</button>
+      <button class="btn btn-success" onclick="downloadExcel('multi')">📥 Download Nhiều Sheet</button>
+      <button class="btn btn-outline" onclick="downloadExcel('both')">📥 Download cả 2</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ============ STATE ============
+let images = [];       // { id, file, dataUrl, name, status, rows }
+let allData = [];      // merged rows from all images
+let detectedColumns = [];  // column headers detected
+
+// ============ API KEY ============
+window.addEventListener('DOMContentLoaded', () => {
+  const savedKey = localStorage.getItem('gemini_api_key');
+  if (savedKey) document.getElementById('apiKey').value = savedKey;
+});
+
+function saveApiKey() {
+  const key = document.getElementById('apiKey').value.trim();
+  if (key) {
+    localStorage.setItem('gemini_api_key', key);
+    showToast('API Key đã lưu!', 'success');
+  }
+}
+
+function toggleKeyVisibility() {
+  const inp = document.getElementById('apiKey');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+function getApiKey() {
+  return document.getElementById('apiKey').value.trim();
+}
+
+// ============ DRAG & DROP ============
+const dropZone = document.getElementById('dropZone');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleFiles(e.dataTransfer.files);
+});
+
+function handleFiles(files) {
+  const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+  if (!imageFiles.length) return;
+
+  // Sort by name naturally
+  imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+  imageFiles.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      images.push({
+        id: Date.now() + Math.random(),
+        file,
+        dataUrl: e.target.result,
+        name: file.name,
+        status: 'ready',  // ready, processing, done, error
+        rows: []
+      });
+      renderImages();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ============ RENDER IMAGES ============
+function renderImages() {
+  const grid = document.getElementById('imagesGrid');
+  const toolbar = document.getElementById('toolbar');
+
+  if (!images.length) {
+    grid.innerHTML = '';
+    toolbar.style.display = 'none';
+    return;
+  }
+
+  toolbar.style.display = 'flex';
+  updateInfo();
+
+  grid.innerHTML = images.map((img, i) => {
+    const statusIcon = { ready: '⏳', processing: '🔄', done: '✅', error: '❌' }[img.status];
+    return `
+      <div class="image-card ${img.status}" data-idx="${i}">
+        <button class="btn-remove" onclick="removeImage(${i})">✕</button>
+        <img src="${img.dataUrl}" alt="${img.name}" />
+        <div class="card-footer">
+          <span class="card-name">${img.name}</span>
+          <span class="card-status">${statusIcon}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function removeImage(idx) {
+  images.splice(idx, 1);
+  renderImages();
+  mergeAndRender();
+}
+
+function clearAll() {
+  images = [];
+  allData = [];
+  detectedColumns = [];
+  renderImages();
+  document.getElementById('tableSection').style.display = 'none';
+  document.getElementById('statusLog').className = 'status-log';
+  document.getElementById('progressBar').className = 'progress-bar';
+}
+
+function updateInfo() {
+  const done = images.filter(i => i.status === 'done').length;
+  const total = images.length;
+  const wordCount = images.reduce((s, i) => s + i.rows.length, 0);
+  document.getElementById('infoText').textContent = `${total} hình | ${done} đã xong | ${wordCount} từ`;
+}
+
+// ============ GEMINI API ============
+async function callGemini(imageDataUrl, fileName) {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('Chưa nhập API Key!');
+
+  const model = document.getElementById('geminiModel').value;
+  const base64 = imageDataUrl.split(',')[1];
+  const mimeType = imageDataUrl.match(/data:([^;]+)/)[1];
+
+  const prompt = `You are a precise OCR tool. Analyze this vocabulary table image carefully.
+
+INSTRUCTIONS:
+1. Detect all columns in the table (there may be 5 or 6 columns)
+2. Extract EVERY row of data exactly as shown
+3. Keep IPA phonetic symbols EXACTLY (e.g. /ðə/, /ˈstjuː.dents/)
+4. Keep Vietnamese diacritics EXACTLY (e.g. Sinh viên, học sinh)
+5. Keep abbreviations exactly (e.g. Det., N./V., Adj./Adv.)
+
+Return ONLY valid JSON (no markdown, no code fences) in this format:
+{
+  "columns": ["col1_name", "col2_name", ...],
+  "data": [
+    ["val1", "val2", ...],
+    ["val1", "val2", ...]
+  ]
+}
+
+IMPORTANT:
+- The first column is usually STT (number)
+- Return STT as numbers, not strings
+- If a cell appears empty, use ""
+- Do NOT skip any rows
+- Do NOT add rows that don't exist in the image`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: mimeType, data: base64 } }
+        ]
+      }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 8192
+      }
+    })
+  });
+
+  if (!resp.ok) {
+    const errData = await resp.json().catch(() => ({}));
+    throw new Error(errData?.error?.message || `API error ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Empty response from Gemini');
+
+  // Parse JSON - handle potential markdown code fences
+  let cleaned = text.trim();
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+  }
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error('Gemini trả về JSON không hợp lệ: ' + cleaned.substring(0, 200));
+  }
+}
+
+// ============ EXTRACT ============
+async function extractAll() {
+  const apiKey = getApiKey();
+  if (!apiKey) { showToast('Vui lòng nhập Gemini API Key!', 'error'); return; }
+  if (!images.length) { showToast('Chưa có hình nào!', 'error'); return; }
+
+  const pendingImages = images.filter(i => i.status !== 'done');
+  if (!pendingImages.length) { showToast('Tất cả hình đã extract rồi!', 'success'); return; }
+
+  const btn = document.getElementById('btnExtract');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Đang xử lý...';
+
+  const progressBar = document.getElementById('progressBar');
+  const progressFill = document.getElementById('progressFill');
+  const statusLog = document.getElementById('statusLog');
+  progressBar.className = 'progress-bar active';
+  statusLog.className = 'status-log active';
+
+  let processed = 0;
+
+  for (const img of pendingImages) {
+    img.status = 'processing';
+    renderImages();
+    addLog(`🔍 Đang đọc: ${img.name}...`, 'info');
+
+    try {
+      const result = await callGemini(img.dataUrl, img.name);
+
+      // Store detected columns (use first successful detection)
+      if (!detectedColumns.length && result.columns) {
+        detectedColumns = result.columns;
+        addLog(`📊 Phát hiện ${result.columns.length} cột: ${result.columns.join(', ')}`, 'info');
+      }
+
+      img.rows = result.data || [];
+      img.status = 'done';
+      addLog(`✅ ${img.name}: ${img.rows.length} dòng`, 'success');
+    } catch (err) {
+      img.status = 'error';
+      img.rows = [];
+      addLog(`❌ ${img.name}: ${err.message}`, 'error');
+    }
+
+    processed++;
+    progressFill.style.width = (processed / pendingImages.length * 100) + '%';
+    renderImages();
+
+    // Small delay to avoid rate limiting
+    if (processed < pendingImages.length) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '🔍 Extract tất cả';
+
+  mergeAndRender();
+
+  const totalWords = images.reduce((s, i) => s + i.rows.length, 0);
+  const errorCount = images.filter(i => i.status === 'error').length;
+  if (errorCount) {
+    showToast(`Xong! ${totalWords} từ (${errorCount} hình lỗi)`, 'error');
+  } else {
+    showToast(`Xong! ${totalWords} từ từ ${images.length} hình`, 'success');
+  }
+}
+
+// ============ MERGE & RENDER TABLE ============
+function mergeAndRender() {
+  allData = [];
+  images.forEach(img => {
+    if (img.status === 'done') {
+      allData.push(...img.rows);
+    }
+  });
+
+  if (!allData.length) {
+    document.getElementById('tableSection').style.display = 'none';
+    return;
+  }
+
+  document.getElementById('tableSection').style.display = 'block';
+  document.getElementById('dataCount').textContent = `${allData.length} dòng | ${detectedColumns.length} cột`;
+
+  // Render header
+  const thead = document.getElementById('dataTableHead');
+  thead.innerHTML = '<tr>' + detectedColumns.map(c => `<th>${c}</th>`).join('') + '<th style="width:40px"></th></tr>';
+
+  // Render body
+  const tbody = document.getElementById('dataTableBody');
+  tbody.innerHTML = allData.map((row, ri) => {
+    const cells = row.map((val, ci) => {
+      const cls = getColumnClass(ci, detectedColumns.length);
+      return `<td class="${cls}" contenteditable="true" data-row="${ri}" data-col="${ci}">${escapeHtml(String(val))}</td>`;
+    }).join('');
+    return `<tr>${cells}<td><button class="btn btn-sm btn-danger" onclick="deleteRow(${ri})" style="padding:2px 6px;font-size:10px">✕</button></td></tr>`;
+  }).join('');
+
+  // Listen for edits
+  tbody.querySelectorAll('td[contenteditable]').forEach(td => {
+    td.addEventListener('blur', function() {
+      const r = parseInt(this.dataset.row);
+      const c = parseInt(this.dataset.col);
+      allData[r][c] = this.textContent;
+    });
+  });
+}
+
+function getColumnClass(colIdx, totalCols) {
+  if (totalCols === 6) {
+    return ['col-stt', 'col-word', 'col-abbr', 'col-ipa', 'col-type', 'col-meaning'][colIdx] || '';
+  } else if (totalCols === 5) {
+    return ['col-stt', 'col-word', 'col-ipa', 'col-type', 'col-meaning'][colIdx] || '';
+  }
+  return '';
+}
+
+function deleteRow(idx) {
+  allData.splice(idx, 1);
+  mergeAndRender();
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ============ EXCEL EXPORT ============
+function downloadExcel(mode) {
+  if (!allData.length) { showToast('Chưa có dữ liệu!', 'error'); return; }
+
+  const outputName = document.getElementById('outputName').value || 'PTE_Vocab';
+  const wordsPerSheet = parseInt(document.getElementById('wordsPerSheet').value) || 40;
+
+  if (mode === 'single' || mode === 'both') {
+    const wb = createWorkbook(allData, detectedColumns, 'single', wordsPerSheet);
+    XLSX.writeFile(wb, `${outputName}_v2.xlsx`);
+  }
+
+  if (mode === 'multi' || mode === 'both') {
+    const wb = createWorkbook(allData, detectedColumns, 'multi', wordsPerSheet);
+    const sheetCount = wb.SheetNames.length;
+    XLSX.writeFile(wb, `${outputName}_${sheetCount}trang.xlsx`);
+  }
+
+  showToast('Đã tải Excel!', 'success');
+}
+
+function createWorkbook(data, columns, mode, wordsPerSheet) {
+  const wb = XLSX.utils.book_new();
+
+  if (mode === 'single') {
+    const ws = createStyledSheet(data, columns);
+    XLSX.utils.book_append_sheet(wb, ws, `Tất cả (${data.length} từ)`);
+  } else {
+    // Split into sheets
+    const totalSheets = Math.ceil(data.length / wordsPerSheet);
+    for (let i = 0; i < totalSheets; i++) {
+      const start = i * wordsPerSheet;
+      const end = Math.min(start + wordsPerSheet, data.length);
+      const chunk = data.slice(start, end);
+      const firstSTT = chunk[0]?.[0] || (start + 1);
+      const lastSTT = chunk[chunk.length - 1]?.[0] || end;
+      const sheetName = `Trang ${i + 1} (${firstSTT}-${lastSTT})`;
+      const ws = createStyledSheet(chunk, columns);
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    }
+  }
+
+  return wb;
+}
+
+function createStyledSheet(data, columns) {
+  // Build array of arrays: header + data
+  const aoa = [columns, ...data];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Column widths
+  const colCount = columns.length;
+  if (colCount === 6) {
+    ws['!cols'] = [
+      { wch: 6 },   // STT
+      { wch: 22 },  // Từ vựng
+      { wch: 12 },  // Viết tắt
+      { wch: 26 },  // Phiên âm
+      { wch: 16 },  // Loại
+      { wch: 38 },  // Nghĩa
+    ];
+  } else if (colCount === 5) {
+    ws['!cols'] = [
+      { wch: 6 },   // STT
+      { wch: 22 },  // Từ vựng
+      { wch: 28 },  // Phiên âm
+      { wch: 18 },  // Loại
+      { wch: 42 },  // Nghĩa
+    ];
+  }
+
+  // Row heights
+  const rows = [];
+  for (let i = 0; i <= data.length; i++) {
+    rows.push({ hpt: 22 });
+  }
+  ws['!rows'] = rows;
+
+  // Styling
+  const headerFill = { fgColor: { rgb: "1A1A2E" } };
+  const headerFont = { name: "Arial", bold: true, sz: 11, color: { rgb: "FFFFFF" } };
+  const altFill = { fgColor: { rgb: "F2F2F2" } };
+  const thinBorder = {
+    top: { style: "thin", color: { rgb: "D0D0D0" } },
+    bottom: { style: "thin", color: { rgb: "D0D0D0" } },
+    left: { style: "thin", color: { rgb: "D0D0D0" } },
+    right: { style: "thin", color: { rgb: "D0D0D0" } }
+  };
+
+  const colFonts6 = [
+    { name: "Arial", sz: 10, color: { rgb: "555555" } },
+    { name: "Arial", sz: 10, bold: true },
+    { name: "Arial", sz: 10, color: { rgb: "555555" } },
+    { name: "Arial", sz: 10, italic: true, color: { rgb: "555555" } },
+    { name: "Arial", sz: 10, bold: true, color: { rgb: "CC0000" } },
+    { name: "Arial", sz: 10 },
+  ];
+  const colAligns6 = [
+    { horizontal: "center", vertical: "center" },
+    { horizontal: "left", vertical: "center" },
+    { horizontal: "center", vertical: "center" },
+    { horizontal: "left", vertical: "center" },
+    { horizontal: "center", vertical: "center" },
+    { horizontal: "left", vertical: "center" },
+  ];
+  const colFonts5 = [
+    { name: "Arial", sz: 10, color: { rgb: "555555" } },
+    { name: "Arial", sz: 10, bold: true },
+    { name: "Arial", sz: 10, italic: true, color: { rgb: "555555" } },
+    { name: "Arial", sz: 10, bold: true, color: { rgb: "CC0000" } },
+    { name: "Arial", sz: 10 },
+  ];
+  const colAligns5 = [
+    { horizontal: "center", vertical: "center" },
+    { horizontal: "left", vertical: "center" },
+    { horizontal: "left", vertical: "center" },
+    { horizontal: "center", vertical: "center" },
+    { horizontal: "left", vertical: "center" },
+  ];
+
+  const colFonts = colCount === 6 ? colFonts6 : colFonts5;
+  const colAligns = colCount === 6 ? colAligns6 : colAligns5;
+
+  // Apply styles to all cells
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      if (!ws[addr]) ws[addr] = { v: "", t: "s" };
+      if (!ws[addr].s) ws[addr].s = {};
+
+      ws[addr].s.border = thinBorder;
+
+      if (R === 0) {
+        // Header row
+        ws[addr].s.fill = headerFill;
+        ws[addr].s.font = headerFont;
+        ws[addr].s.alignment = { horizontal: "center", vertical: "center" };
+      } else {
+        // Data rows
+        ws[addr].s.font = colFonts[C] || {};
+        ws[addr].s.alignment = colAligns[C] || {};
+        if (R % 2 === 0) {
+          ws[addr].s.fill = altFill;
+        }
+      }
+    }
+  }
+
+  // Freeze panes
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  // AutoFilter
+  ws['!autofilter'] = { ref: ws['!ref'] };
+
+  return ws;
+}
+
+// ============ UTILITIES ============
+function addLog(msg, type) {
+  const log = document.getElementById('statusLog');
+  const line = document.createElement('div');
+  line.className = `log-line ${type}`;
+  line.textContent = msg;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function showToast(msg, type) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+function toggleSettings() {
+  const panel = document.getElementById('settingsPanel');
+  panel.classList.toggle('active');
+}
+
+function copyAsText() {
+  if (!allData.length) return;
+  const header = detectedColumns.join('\t');
+  const rows = allData.map(r => r.join('\t')).join('\n');
+  navigator.clipboard.writeText(header + '\n' + rows).then(() => {
+    showToast('Đã copy vào clipboard!', 'success');
+  });
+}
+</script>
+
+</body>
+</html>
