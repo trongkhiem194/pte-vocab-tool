@@ -436,11 +436,17 @@ table.data-table .col-meaning { }
     <div class="setting-row">
       <label>AI Model:</label>
       <select id="aiModel">
-        <optgroup label="OpenRouter" id="openrouterModels">
-          <option value="openrouter/free">Auto (miễn phí, tự chọn model)</option>
-          <option value="google/gemma-3-27b-it:free">Gemma 3 27B (miễn phí)</option>
-          <option value="qwen/qwen-2.5-vl-72b-instruct:free">Qwen 2.5 VL 72B (miễn phí)</option>
-          <option value="meta-llama/llama-4-maverick:free">Llama 4 Maverick (miễn phí)</option>
+        <optgroup label="OpenRouter - Có phí (tốt nhất)" id="openrouterPaidModels">
+          <option value="google/gemini-2.5-flash-preview">⭐ Gemini 2.5 Flash ($)</option>
+          <option value="openai/gpt-4o-mini">GPT-4o Mini ($)</option>
+          <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash ($)</option>
+          <option value="anthropic/claude-3.5-haiku">Claude 3.5 Haiku ($)</option>
+        </optgroup>
+        <optgroup label="OpenRouter - Miễn phí" id="openrouterModels">
+          <option value="openrouter/free">Auto (miễn phí)</option>
+          <option value="google/gemma-3-27b-it:free">Gemma 3 27B (free)</option>
+          <option value="qwen/qwen-2.5-vl-72b-instruct:free">Qwen 2.5 VL 72B (free)</option>
+          <option value="meta-llama/llama-4-maverick:free">Llama 4 Maverick (free)</option>
         </optgroup>
         <optgroup label="Gemini Direct" id="geminiModels">
           <option value="gemini-2.5-flash-preview-04-17">gemini-2.5-flash</option>
@@ -513,13 +519,16 @@ function onProviderChange() {
 function updateModelVisibility() {
   const provider = getProvider();
   const select = document.getElementById('aiModel');
+  const orPaidGroup = document.getElementById('openrouterPaidModels');
   const orGroup = document.getElementById('openrouterModels');
   const gmGroup = document.getElementById('geminiModels');
   if (provider === 'openrouter') {
+    orPaidGroup.style.display = '';
     orGroup.style.display = '';
     gmGroup.style.display = 'none';
     if (select.selectedOptions[0]?.parentElement === gmGroup) select.selectedIndex = 0;
   } else {
+    orPaidGroup.style.display = 'none';
     orGroup.style.display = 'none';
     gmGroup.style.display = '';
     const firstGm = gmGroup.querySelector('option');
@@ -664,6 +673,23 @@ IMPORTANT:
 - Do NOT skip any rows
 - Do NOT add rows that don't exist in the image`;
 
+// Compress image to reduce payload size
+function compressImage(dataUrl, maxWidth) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.src = dataUrl;
+  });
+}
+
 async function callAI(imageDataUrl, fileName) {
   const apiKey = getApiKey();
   if (!apiKey) throw new Error('Chưa nhập API Key!');
@@ -773,31 +799,47 @@ async function extractAll() {
     renderImages();
     addLog(`🔍 Đang đọc: ${img.name}...`, 'info');
 
-    try {
-      const result = await callAI(img.dataUrl, img.name);
+    let retries = 3;
+    let success = false;
+    while (retries > 0 && !success) {
+      try {
+        // Compress image before sending (max 1200px width)
+        const compressedUrl = await compressImage(img.dataUrl, 1200);
+        const result = await callAI(compressedUrl, img.name);
 
-      // Store detected columns (use first successful detection)
-      if (!detectedColumns.length && result.columns) {
-        detectedColumns = result.columns;
-        addLog(`📊 Phát hiện ${result.columns.length} cột: ${result.columns.join(', ')}`, 'info');
+        if (!detectedColumns.length && result.columns) {
+          detectedColumns = result.columns;
+          addLog(`📊 Phát hiện ${result.columns.length} cột: ${result.columns.join(', ')}`, 'info');
+        }
+
+        img.rows = result.data || [];
+        img.status = 'done';
+        addLog(`✅ ${img.name}: ${img.rows.length} dòng`, 'success');
+        success = true;
+      } catch (err) {
+        retries--;
+        if (err.message.includes('429') || err.message.includes('rate') || err.message.includes('Too Many')) {
+          const wait = (4 - retries) * 8;  // 8s, 16s, 24s
+          addLog(`⏳ Rate limit — chờ ${wait}s rồi thử lại (còn ${retries} lần)...`, 'info');
+          await new Promise(r => setTimeout(r, wait * 1000));
+        } else if (retries > 0) {
+          addLog(`⚠️ Lỗi, thử lại (còn ${retries} lần): ${err.message}`, 'error');
+          await new Promise(r => setTimeout(r, 3000));
+        } else {
+          img.status = 'error';
+          img.rows = [];
+          addLog(`❌ ${img.name}: ${err.message}`, 'error');
+        }
       }
-
-      img.rows = result.data || [];
-      img.status = 'done';
-      addLog(`✅ ${img.name}: ${img.rows.length} dòng`, 'success');
-    } catch (err) {
-      img.status = 'error';
-      img.rows = [];
-      addLog(`❌ ${img.name}: ${err.message}`, 'error');
     }
 
     processed++;
     progressFill.style.width = (processed / pendingImages.length * 100) + '%';
     renderImages();
 
-    // Small delay to avoid rate limiting
+    // Delay between requests (3s for free tier)
     if (processed < pendingImages.length) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 3000));
     }
   }
 
