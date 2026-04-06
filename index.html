@@ -385,11 +385,15 @@ table.data-table .col-meaning { }
 <div class="header">
   <h1>📚 PTE Vocabulary → Excel</h1>
   <div class="api-section">
+    <select id="providerSelect" onchange="onProviderChange()" style="background:var(--glass);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:6px;font-size:12px;font-family:'Inter',sans-serif">
+      <option value="openrouter">OpenRouter</option>
+      <option value="gemini">Gemini</option>
+    </select>
     <span style="font-size:13px;color:var(--text2)">🔑</span>
-    <input type="password" id="apiKey" placeholder="Nhập Gemini API Key (chỉ cần 1 lần)" />
+    <input type="password" id="apiKey" placeholder="Nhập API Key (chỉ cần 1 lần)" />
     <button class="btn btn-sm btn-outline" onclick="toggleKeyVisibility()">👁</button>
     <button class="btn btn-sm btn-primary" onclick="saveApiKey()">Lưu</button>
-    <a href="https://aistudio.google.com/app/apikey" target="_blank" class="help-link">Lấy key miễn phí →</a>
+    <a id="helpLink" href="https://openrouter.ai/keys" target="_blank" class="help-link">Lấy key →</a>
   </div>
 </div>
 
@@ -430,11 +434,19 @@ table.data-table .col-meaning { }
       <input type="text" id="outputName" value="PTE_Vocab" style="background:var(--glass);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:13px;width:200px;">
     </div>
     <div class="setting-row">
-      <label>Gemini model:</label>
-      <select id="geminiModel">
-        <option value="gemini-2.0-flash">gemini-2.0-flash (nhanh)</option>
-        <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite (rất nhanh)</option>
-        <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+      <label>AI Model:</label>
+      <select id="aiModel">
+        <optgroup label="OpenRouter" id="openrouterModels">
+          <option value="google/gemini-2.5-flash-preview">Gemini 2.5 Flash (miễn phí)</option>
+          <option value="google/gemini-2.0-flash-exp:free">Gemini 2.0 Flash (miễn phí)</option>
+          <option value="meta-llama/llama-4-maverick:free">Llama 4 Maverick (miễn phí)</option>
+          <option value="qwen/qwen2.5-vl-72b-instruct:free">Qwen 2.5 VL 72B (miễn phí)</option>
+        </optgroup>
+        <optgroup label="Gemini Direct" id="geminiModels">
+          <option value="gemini-2.5-flash-preview-04-17">gemini-2.5-flash</option>
+          <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite</option>
+          <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+        </optgroup>
       </select>
     </div>
   </div>
@@ -473,16 +485,60 @@ let images = [];       // { id, file, dataUrl, name, status, rows }
 let allData = [];      // merged rows from all images
 let detectedColumns = [];  // column headers detected
 
-// ============ API KEY ============
+// ============ PROVIDER & API KEY ============
+function getProvider() {
+  return document.getElementById('providerSelect').value;
+}
+
+function onProviderChange() {
+  const provider = getProvider();
+  const helpLink = document.getElementById('helpLink');
+  const apiKeyInput = document.getElementById('apiKey');
+  if (provider === 'openrouter') {
+    helpLink.href = 'https://openrouter.ai/keys';
+    helpLink.textContent = 'Lấy key →';
+    apiKeyInput.placeholder = 'Nhập OpenRouter API Key';
+    const savedKey = localStorage.getItem('openrouter_api_key');
+    apiKeyInput.value = savedKey || '';
+  } else {
+    helpLink.href = 'https://aistudio.google.com/app/apikey';
+    helpLink.textContent = 'Lấy key →';
+    apiKeyInput.placeholder = 'Nhập Gemini API Key';
+    const savedKey = localStorage.getItem('gemini_api_key');
+    apiKeyInput.value = savedKey || '';
+  }
+  updateModelVisibility();
+}
+
+function updateModelVisibility() {
+  const provider = getProvider();
+  const select = document.getElementById('aiModel');
+  const orGroup = document.getElementById('openrouterModels');
+  const gmGroup = document.getElementById('geminiModels');
+  if (provider === 'openrouter') {
+    orGroup.style.display = '';
+    gmGroup.style.display = 'none';
+    if (select.selectedOptions[0]?.parentElement === gmGroup) select.selectedIndex = 0;
+  } else {
+    orGroup.style.display = 'none';
+    gmGroup.style.display = '';
+    const firstGm = gmGroup.querySelector('option');
+    if (firstGm) firstGm.selected = true;
+  }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
-  const savedKey = localStorage.getItem('gemini_api_key');
-  if (savedKey) document.getElementById('apiKey').value = savedKey;
+  const savedProvider = localStorage.getItem('ai_provider') || 'openrouter';
+  document.getElementById('providerSelect').value = savedProvider;
+  onProviderChange();
 });
 
 function saveApiKey() {
   const key = document.getElementById('apiKey').value.trim();
+  const provider = getProvider();
   if (key) {
-    localStorage.setItem('gemini_api_key', key);
+    localStorage.setItem(provider + '_api_key', key);
+    localStorage.setItem('ai_provider', provider);
     showToast('API Key đã lưu!', 'success');
   }
 }
@@ -582,16 +638,8 @@ function updateInfo() {
   document.getElementById('infoText').textContent = `${total} hình | ${done} đã xong | ${wordCount} từ`;
 }
 
-// ============ GEMINI API ============
-async function callGemini(imageDataUrl, fileName) {
-  const apiKey = getApiKey();
-  if (!apiKey) throw new Error('Chưa nhập API Key!');
-
-  const model = document.getElementById('geminiModel').value;
-  const base64 = imageDataUrl.split(',')[1];
-  const mimeType = imageDataUrl.match(/data:([^;]+)/)[1];
-
-  const prompt = `You are a precise OCR tool. Analyze this vocabulary table image carefully.
+// ============ AI API (OpenRouter + Gemini) ============
+const PROMPT = `You are a precise OCR tool. Analyze this vocabulary table image carefully.
 
 INSTRUCTIONS:
 1. Detect all columns in the table (there may be 5 or 6 columns)
@@ -616,22 +664,63 @@ IMPORTANT:
 - Do NOT skip any rows
 - Do NOT add rows that don't exist in the image`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+async function callAI(imageDataUrl, fileName) {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('Chưa nhập API Key!');
+  const provider = getProvider();
+  return provider === 'openrouter' ? callOpenRouter(apiKey, imageDataUrl) : callGeminiDirect(apiKey, imageDataUrl);
+}
 
+async function callOpenRouter(apiKey, imageDataUrl) {
+  const model = document.getElementById('aiModel').value;
+  const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': window.location.href,
+      'X-Title': 'PTE Vocab Tool'
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: PROMPT },
+          { type: 'image_url', image_url: { url: imageDataUrl } }
+        ]
+      }],
+      temperature: 0.1,
+      max_tokens: 8192
+    })
+  });
+
+  if (!resp.ok) {
+    const errData = await resp.json().catch(() => ({}));
+    throw new Error(errData?.error?.message || `API error ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) throw new Error('Empty response from API');
+  return parseJSON(text);
+}
+
+async function callGeminiDirect(apiKey, imageDataUrl) {
+  const model = document.getElementById('aiModel').value;
+  const base64 = imageDataUrl.split(',')[1];
+  const mimeType = imageDataUrl.match(/data:([^;]+)/)[1];
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: base64 } }
-        ]
-      }],
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 8192
-      }
+      contents: [{ parts: [
+        { text: PROMPT },
+        { inline_data: { mime_type: mimeType, data: base64 } }
+      ]}],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
     })
   });
 
@@ -643,17 +732,18 @@ IMPORTANT:
   const data = await resp.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Empty response from Gemini');
+  return parseJSON(text);
+}
 
-  // Parse JSON - handle potential markdown code fences
+function parseJSON(text) {
   let cleaned = text.trim();
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
   }
-
   try {
     return JSON.parse(cleaned);
   } catch (e) {
-    throw new Error('Gemini trả về JSON không hợp lệ: ' + cleaned.substring(0, 200));
+    throw new Error('JSON không hợp lệ: ' + cleaned.substring(0, 200));
   }
 }
 
@@ -684,7 +774,7 @@ async function extractAll() {
     addLog(`🔍 Đang đọc: ${img.name}...`, 'info');
 
     try {
-      const result = await callGemini(img.dataUrl, img.name);
+      const result = await callAI(img.dataUrl, img.name);
 
       // Store detected columns (use first successful detection)
       if (!detectedColumns.length && result.columns) {
