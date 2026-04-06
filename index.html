@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PTE Vocabulary → Excel Tool</title>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
@@ -917,161 +918,130 @@ function escapeHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ============ EXCEL EXPORT ============
-function downloadExcel(mode) {
+// ============ ABBREVIATION MAPPING ============
+const ABBR_MAP = {
+  'n': 'N.', 'v': 'V.', 'adj': 'Adj.', 'adv': 'Adv.',
+  'prep': 'Prep.', 'conj': 'Conj.', 'pro': 'Pron.', 'pron': 'Pron.',
+  'det': 'Det.', 'num': 'Num.', 'mod': 'Mod.', 'excl': 'Excl.',
+  'interj': 'Interj.', 'aux': 'Aux.'
+};
+
+function mapAbbr(raw) {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  // Already formatted (e.g. "N.", "Adj./Adv.")
+  if (/^[A-Z]/.test(s)) return s;
+  // Handle combos: "n, v" → "N./V.", "det, pro" → "Det./Pron."
+  return s.split(/[,\/]/).map(p => {
+    const key = p.trim().toLowerCase().replace(/[.\/]/g, '');
+    return ABBR_MAP[key] || p.trim();
+  }).join('/');
+}
+
+// ============ EXCEL EXPORT (ExcelJS) ============
+async function downloadExcel(mode) {
   if (!allData.length) { showToast('Chưa có dữ liệu!', 'error'); return; }
 
   const outputName = document.getElementById('outputName').value || 'PTE_Vocab';
   const wordsPerSheet = parseInt(document.getElementById('wordsPerSheet').value) || 40;
 
   if (mode === 'single' || mode === 'both') {
-    const wb = createWorkbook(allData, detectedColumns, 'single', wordsPerSheet);
-    XLSX.writeFile(wb, `${outputName}_v2.xlsx`);
+    const wb = new ExcelJS.Workbook();
+    addStyledSheet(wb, allData, detectedColumns, `Tất cả (${allData.length} từ)`);
+    const buf = await wb.xlsx.writeBuffer();
+    saveAs(new Blob([buf]), `${outputName}_v2.xlsx`);
   }
 
   if (mode === 'multi' || mode === 'both') {
-    const wb = createWorkbook(allData, detectedColumns, 'multi', wordsPerSheet);
-    const sheetCount = wb.SheetNames.length;
-    XLSX.writeFile(wb, `${outputName}_${sheetCount}trang.xlsx`);
+    const wb = new ExcelJS.Workbook();
+    const totalSheets = Math.ceil(allData.length / wordsPerSheet);
+    for (let i = 0; i < totalSheets; i++) {
+      const start = i * wordsPerSheet;
+      const end = Math.min(start + wordsPerSheet, allData.length);
+      const chunk = allData.slice(start, end);
+      const firstSTT = chunk[0]?.[0] || (start + 1);
+      const lastSTT = chunk[chunk.length - 1]?.[0] || end;
+      addStyledSheet(wb, chunk, detectedColumns, `Trang ${i+1} (${firstSTT}-${lastSTT})`);
+    }
+    const buf = await wb.xlsx.writeBuffer();
+    saveAs(new Blob([buf]), `${outputName}_${totalSheets}trang.xlsx`);
   }
 
   showToast('Đã tải Excel!', 'success');
 }
 
-function createWorkbook(data, columns, mode, wordsPerSheet) {
-  const wb = XLSX.utils.book_new();
-
-  if (mode === 'single') {
-    const ws = createStyledSheet(data, columns);
-    XLSX.utils.book_append_sheet(wb, ws, `Tất cả (${data.length} từ)`);
-  } else {
-    // Split into sheets
-    const totalSheets = Math.ceil(data.length / wordsPerSheet);
-    for (let i = 0; i < totalSheets; i++) {
-      const start = i * wordsPerSheet;
-      const end = Math.min(start + wordsPerSheet, data.length);
-      const chunk = data.slice(start, end);
-      const firstSTT = chunk[0]?.[0] || (start + 1);
-      const lastSTT = chunk[chunk.length - 1]?.[0] || end;
-      const sheetName = `Trang ${i + 1} (${firstSTT}-${lastSTT})`;
-      const ws = createStyledSheet(chunk, columns);
-      XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    }
-  }
-
-  return wb;
-}
-
-function createStyledSheet(data, columns) {
-  // Build array of arrays: header + data
-  const aoa = [columns, ...data];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // Column widths
+function addStyledSheet(wb, data, columns, sheetName) {
+  const ws = wb.addWorksheet(sheetName);
   const colCount = columns.length;
+  const border = { top:{style:'thin',color:{argb:'FFD0D0D0'}}, bottom:{style:'thin',color:{argb:'FFD0D0D0'}}, left:{style:'thin',color:{argb:'FFD0D0D0'}}, right:{style:'thin',color:{argb:'FFD0D0D0'}} };
+
+  // Detect which column index is the "Loại" / type column
+  const typeColIdx = columns.findIndex(c => /lo[aạ]i/i.test(c) || /type/i.test(c) || /abbr/i.test(c));
+
+  // Column config based on count
+  let colWidths, colStyles;
   if (colCount === 6) {
-    ws['!cols'] = [
-      { wch: 6 },   // STT
-      { wch: 22 },  // Từ vựng
-      { wch: 12 },  // Viết tắt
-      { wch: 26 },  // Phiên âm
-      { wch: 16 },  // Loại
-      { wch: 38 },  // Nghĩa
+    colWidths = [6, 22, 12, 26, 16, 38];
+    colStyles = [
+      {font:{name:'Arial',size:10,color:{argb:'FF555555'}}, alignment:{horizontal:'center',vertical:'middle'}},
+      {font:{name:'Arial',size:10,bold:true}, alignment:{horizontal:'left',vertical:'middle'}},
+      {font:{name:'Arial',size:10,color:{argb:'FF555555'}}, alignment:{horizontal:'center',vertical:'middle'}},
+      {font:{name:'Arial',size:10,italic:true,color:{argb:'FF555555'}}, alignment:{horizontal:'left',vertical:'middle'}},
+      {font:{name:'Arial',size:10,bold:true,color:{argb:'FFCC0000'}}, alignment:{horizontal:'center',vertical:'middle'}},
+      {font:{name:'Arial',size:10}, alignment:{horizontal:'left',vertical:'middle'}},
     ];
-  } else if (colCount === 5) {
-    ws['!cols'] = [
-      { wch: 6 },   // STT
-      { wch: 22 },  // Từ vựng
-      { wch: 28 },  // Phiên âm
-      { wch: 18 },  // Loại
-      { wch: 42 },  // Nghĩa
+  } else {
+    colWidths = [6, 22, 28, 18, 42];
+    colStyles = [
+      {font:{name:'Arial',size:10,color:{argb:'FF555555'}}, alignment:{horizontal:'center',vertical:'middle'}},
+      {font:{name:'Arial',size:10,bold:true}, alignment:{horizontal:'left',vertical:'middle'}},
+      {font:{name:'Arial',size:10,italic:true,color:{argb:'FF555555'}}, alignment:{horizontal:'left',vertical:'middle'}},
+      {font:{name:'Arial',size:10,bold:true,color:{argb:'FFCC0000'}}, alignment:{horizontal:'center',vertical:'middle'}},
+      {font:{name:'Arial',size:10}, alignment:{horizontal:'left',vertical:'middle'}},
     ];
   }
 
-  // Row heights
-  const rows = [];
-  for (let i = 0; i <= data.length; i++) {
-    rows.push({ hpt: 22 });
-  }
-  ws['!rows'] = rows;
+  // Set column widths
+  ws.columns = colWidths.map(w => ({ width: w }));
 
-  // Styling
-  const headerFill = { fgColor: { rgb: "1A1A2E" } };
-  const headerFont = { name: "Arial", bold: true, sz: 11, color: { rgb: "FFFFFF" } };
-  const altFill = { fgColor: { rgb: "F2F2F2" } };
-  const thinBorder = {
-    top: { style: "thin", color: { rgb: "D0D0D0" } },
-    bottom: { style: "thin", color: { rgb: "D0D0D0" } },
-    left: { style: "thin", color: { rgb: "D0D0D0" } },
-    right: { style: "thin", color: { rgb: "D0D0D0" } }
-  };
+  // Header row
+  const headerRow = ws.addRow(columns);
+  headerRow.height = 22;
+  headerRow.eachCell((cell) => {
+    cell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A1A2E' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = border;
+  });
 
-  const colFonts6 = [
-    { name: "Arial", sz: 10, color: { rgb: "555555" } },
-    { name: "Arial", sz: 10, bold: true },
-    { name: "Arial", sz: 10, color: { rgb: "555555" } },
-    { name: "Arial", sz: 10, italic: true, color: { rgb: "555555" } },
-    { name: "Arial", sz: 10, bold: true, color: { rgb: "CC0000" } },
-    { name: "Arial", sz: 10 },
-  ];
-  const colAligns6 = [
-    { horizontal: "center", vertical: "center" },
-    { horizontal: "left", vertical: "center" },
-    { horizontal: "center", vertical: "center" },
-    { horizontal: "left", vertical: "center" },
-    { horizontal: "center", vertical: "center" },
-    { horizontal: "left", vertical: "center" },
-  ];
-  const colFonts5 = [
-    { name: "Arial", sz: 10, color: { rgb: "555555" } },
-    { name: "Arial", sz: 10, bold: true },
-    { name: "Arial", sz: 10, italic: true, color: { rgb: "555555" } },
-    { name: "Arial", sz: 10, bold: true, color: { rgb: "CC0000" } },
-    { name: "Arial", sz: 10 },
-  ];
-  const colAligns5 = [
-    { horizontal: "center", vertical: "center" },
-    { horizontal: "left", vertical: "center" },
-    { horizontal: "left", vertical: "center" },
-    { horizontal: "center", vertical: "center" },
-    { horizontal: "left", vertical: "center" },
-  ];
+  // Data rows
+  data.forEach((rowData, ri) => {
+    // Map abbreviations in type column
+    const mappedRow = rowData.map((val, ci) => {
+      if (ci === typeColIdx) return mapAbbr(val);
+      return val;
+    });
 
-  const colFonts = colCount === 6 ? colFonts6 : colFonts5;
-  const colAligns = colCount === 6 ? colAligns6 : colAligns5;
-
-  // Apply styles to all cells
-  const range = XLSX.utils.decode_range(ws['!ref']);
-  for (let R = range.s.r; R <= range.e.r; R++) {
-    for (let C = range.s.c; C <= range.e.c; C++) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: C });
-      if (!ws[addr]) ws[addr] = { v: "", t: "s" };
-      if (!ws[addr].s) ws[addr].s = {};
-
-      ws[addr].s.border = thinBorder;
-
-      if (R === 0) {
-        // Header row
-        ws[addr].s.fill = headerFill;
-        ws[addr].s.font = headerFont;
-        ws[addr].s.alignment = { horizontal: "center", vertical: "center" };
-      } else {
-        // Data rows
-        ws[addr].s.font = colFonts[C] || {};
-        ws[addr].s.alignment = colAligns[C] || {};
-        if (R % 2 === 0) {
-          ws[addr].s.fill = altFill;
-        }
+    const row = ws.addRow(mappedRow);
+    row.height = 22;
+    row.eachCell((cell, colNumber) => {
+      const ci = colNumber - 1;
+      const style = colStyles[ci] || {};
+      if (style.font) cell.font = style.font;
+      if (style.alignment) cell.alignment = style.alignment;
+      cell.border = border;
+      // Alternating rows
+      if (ri % 2 === 1) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
       }
-    }
-  }
+    });
+  });
 
-  // Freeze panes
-  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  // Freeze top row
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
   // AutoFilter
-  ws['!autofilter'] = { ref: ws['!ref'] };
-
-  return ws;
+  const lastCol = String.fromCharCode(64 + colCount);
+  ws.autoFilter = `A1:${lastCol}${data.length + 1}`;
 }
 
 // ============ UTILITIES ============
