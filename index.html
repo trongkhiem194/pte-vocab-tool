@@ -574,28 +574,30 @@ dropZone.addEventListener('drop', e => {
   handleFiles(e.dataTransfer.files);
 });
 
-function handleFiles(files) {
+async function handleFiles(files) {
   const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
   if (!imageFiles.length) return;
 
-  // Sort by name naturally
+  // Sort by name naturally (1.jpg, 2.jpg, ..., 10.jpg, 11.jpg)
   imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
-  imageFiles.forEach(file => {
+  // Load all files in parallel but preserve order
+  const loadPromises = imageFiles.map(file => new Promise(resolve => {
     const reader = new FileReader();
-    reader.onload = e => {
-      images.push({
-        id: Date.now() + Math.random(),
-        file,
-        dataUrl: e.target.result,
-        name: file.name,
-        status: 'ready',  // ready, processing, done, error
-        rows: []
-      });
-      renderImages();
-    };
+    reader.onload = e => resolve({
+      id: Date.now() + Math.random(),
+      file,
+      dataUrl: e.target.result,
+      name: file.name,
+      status: 'ready',
+      rows: []
+    });
     reader.readAsDataURL(file);
-  });
+  }));
+
+  const loadedImages = await Promise.all(loadPromises);
+  images.push(...loadedImages);
+  renderImages();
 }
 
 // ============ RENDER IMAGES ============
